@@ -10,7 +10,10 @@ from trac.db.schema import Column, Table
 from trac.env import IEnvironmentSetupParticipant
 from trac.ticket.admin import AbstractEnumAdminPanel
 from trac.ticket.model import AbstractEnum, simplify_whitespace
+from trac.util.text import to_unicode
 from trac.util.translation import N_
+
+from tracrelations.model import Relation
 
 
 db_version_key = 'relation_version'
@@ -36,7 +39,12 @@ table = """CREATE TABLE relation (
     UNIQUE(realm, source, dest, type)
 );"""
 
-class Relation(AbstractEnum):
+
+class ValidationError(TracError):
+    """Raised when validation of a relation fails."""
+
+
+class RelationEnum(AbstractEnum):
     type = 'relation'
 
     def delete(self):
@@ -53,7 +61,7 @@ class Relation(AbstractEnum):
             for enum in self.select(self.env):
                 try:
                     if int(enum.value) > int(self._old_value):
-                        enum.value = unicode(int(enum.value) - 1)
+                        enum.value = to_unicode(int(enum.value) - 1)
                         enum.update()
                 except ValueError:
                     pass  # Ignore cast error for this non-essential operation
@@ -85,7 +93,7 @@ class Relation(AbstractEnum):
 
 class RelationAdminPanel(AbstractEnumAdminPanel):
     _type = 'relation'
-    _enum_cls = Relation
+    _enum_cls = RelationEnum
     _label = N_("Relation"), N_("Relation")
 
 
@@ -99,16 +107,61 @@ def delete_relations_table(env):
         db("DELETE FROM system WHERE name='relation_version'")
 
 
+def check_cycle(env, relation):
+    """Check if the given relation causes a cycle.
+
+    :param env: Trac Environment
+    :param relation: a Relation with all necessary data
+
+    Note that this function checks for relations of the same type and the same realm.
+    """
+    id_list = [relation['source'], relation['dest']]
+
+    def find_cycle(relation, id_list):
+        # Note that we add '->' and
+        for rel in Relation.select(env, relation['realm'], src=relation['dest'], reltype=relation['type']):
+            if rel['dest'] in id_list:
+                # Make pretty error message here
+                msg = ' -> '.join(id_list)
+                raise ValidationError("Validation failed. Cycle detected %s -> %s" %
+                                      (msg, rel['dest']))
+            id_list.append(rel['dest'])
+            find_cycle(rel, id_list)
+
+    find_cycle(relation, id_list)
+    return
+
+
 class RelationSystem(Component):
     implements(IEnvironmentSetupParticipant)
 
-    # IEnvironmentSetupParticipant methods
+    @classmethod
+    def add_relation(cls, env, relation):
+        """Add a relation to the database after doing some validation.
 
+        This method does the actual relation.insert() call of the Relation object.
+        Before doing so some validation is performed.
 
-    def add_relation(self, relation, validators):
+        :param relation: a Relation object which is filled with the relevant data
+
+        In case of validation error a ValidationError is raised.
+        If the relation already exist a ResourceExistsError is raised
+        """
         if not relation:
-            pass
-        
+            raise ValueError("Relation cannot be None.")
+
+        # Some basics here
+        if relation['source'] == relation['dest']:
+            raise ValidationError("Validation failed. Source and destination must be different.")
+
+        # Test for cycle
+        check_cycle(env, relation)
+
+        # We don't check for duplicates. This will fail with ResourceExistsError
+        # in case of duplicates.
+        relation.insert()
+
+    # IEnvironmentSetupParticipant methods
 
     def environment_created(self):
         """Called when a new Trac environment is created."""

@@ -27,5 +27,5 @@ setup(
     entry_points={'trac.plugins': [
         'tracrelations = tracrelations',
     ]},
-    test_suite='tracrelations.tests.test_suite'
+    test_suite='tracrelations.tests'
 )
