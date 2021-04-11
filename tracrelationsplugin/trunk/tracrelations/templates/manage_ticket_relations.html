@@ -1,0 +1,91 @@
+{#
+# Copyright (C) 2021 Cinc
+#
+# All rights reserved.
+#
+# License: 3-clause BSD
+#}
+# extends 'layout.html'
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>
+            # block title
+            ${_("Ticket Relations for")} #${ticket.id}
+            ${ super() }
+            # endblock title
+        </title>
+        # block head
+        ${ super() }
+        # endblock
+    </head>
+    <body>
+    # block content
+    <div class="content">
+        <h1>${_("Ticket Relations for")} <a href="${ticket_url}">#${ticket.id}</a></h1>
+
+        # if not is_start and not is_end:
+        <div>
+            <p>No relations for #${ticket.id}.</p>
+        </div>
+        # elif is_start:
+        <h2>Relations where ticket #${ticket.id} is the start point.</h2>
+        # for rel in is_start:
+        <p>${rel.render({'req': req})}</p>
+        #endfor
+        <table class="listing">
+            <thead>
+            <tr>
+                <th>Source</th>
+                <th>Destination</th>
+                <th>Type</th>
+            </tr>
+            </thead>
+            <tbody>
+            # for rel in is_start:
+            <tr>
+                <td>#${rel['source']}</td>
+                <td>#${rel['dest']}</td>
+                <td>${rel['type']}</td>
+            </tr>
+            # endfor
+            </tbody>
+        </table>
+        # elif is_end:
+        <h2>Relations where ticket #${ticket.id} is the end point.</h2>
+        # endif
+
+        <h2>Add a relation</h2>
+        <form action="" method="POST">
+            <input type="hidden" name="current-tkt" value="${ticket.id}">
+            ${jmacros.form_token_input()}
+            <fieldset>
+                <legend>${_("Add a Relation")}</legend>
+                <div id="add-res">
+
+                </div>
+                <div class="field">
+                    <label>
+                        ${_('Related Ticket #')}
+                        <input type="text" name="other-tkt" value="" />
+                    </label>
+                </div>
+                <div class="field">
+                    <label>
+                        ${_('Relation Type')}
+                        <select name="relation-type">
+                            # for reltype, label in relation_types:
+                            <option value="${reltype}">${label}</option>
+                            # endfor
+                        </select>
+                    </label>
+                </div>
+                <div class="buttons">
+                    <input type="submit" name="add-relation" value="${_('Add')}" />
+                </div>
+            </fieldset>
+        </form>
+    </div>
+    # endblock content
+    </body>
+</html>

@@ -1,0 +1,81 @@
+{#
+# Copyright (C) 2021 Cinc
+#
+# All rights reserved.
+#
+# License: 3-clause BSD
+#}
+    <div class="content">
+        <h2>${_("Ticket Relations for")} <a href="${ticket_url}">#${ticket.id}</a></h2>
+
+        # if not is_start and not is_end:
+        <div>
+            <p>No relations for #${ticket.id}.</p>
+        </div>
+        # elif is_start:
+        <form action="${ticket_url}/relations" method="POST">
+            <input type="hidden" name="__FORM_TOKEN" value="${form_token}" />
+            <input type="hidden" name="format" value="fragment" />
+            <div class="field">
+            <table class="listing">
+                <thead>
+                <tr>
+                    <th class="sel"></th>
+                    <th>Relation</th>
+                </tr>
+                </thead>
+                <tbody>
+                # for rel in is_start + is_end:
+                <tr>
+                    <td class="sel"><input type="checkbox" name="sel" value="${rel.id}"></td>
+                    <td>${wiki_to_oneliner(context, rel.render({'req': req}))}</td>
+                </tr>
+                # endfor
+                </tbody>
+            </table>
+            </div>
+            # if 'TICKET_MODIFY' in req.perm('ticket', tkt_id):
+            <div class="field">
+            <div class="buttons">
+                <input type="submit" name="remove-relation" value="${_('Remove selected items')}" />
+            </div>
+            </div>
+            # endif
+        </form>
+        # elif is_end:
+        <h2>Relations where ticket #${ticket.id} is the end point.</h2>
+        # endif
+
+        <form action="${ticket_url}/relations" method="POST">
+            <input type="hidden" name="current-tkt" value="${ticket.id}" />
+            <input type="hidden" name="__FORM_TOKEN" value="${form_token}" />
+            <input type="hidden" name="format" value="fragment" />
+            <fieldset>
+                <legend>${_("Add a Relation")}</legend>
+                <div id="add-res">
+
+                </div>
+                <div class="field">
+                    <label>
+                        ${_('Related Ticket #')}
+                        <input type="text" name="other-tkt" value="" />
+                    </label>
+                </div>
+                <div class="field">
+                    <label>
+                        ${_('Relation Type')}
+                        <select name="relation-type">
+                            # for reltype, label in relation_types:
+                            <option value="${reltype}">${label}</option>
+                            # endfor
+                        </select>
+                    </label>
+                </div>
+                # if 'TICKET_MODIFY' in req.perm('ticket', tkt_id):
+                <div class="buttons">
+                    <input type="submit" name="add-relation" value="${_('Add')}" />
+                </div>
+                # endif
+            </fieldset>
+        </form>
+    </div>
