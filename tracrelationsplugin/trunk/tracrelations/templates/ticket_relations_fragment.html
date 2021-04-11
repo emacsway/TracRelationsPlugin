@@ -17,7 +17,7 @@
             <input type="hidden" name="__FORM_TOKEN" value="${form_token}" />
             <input type="hidden" name="format" value="fragment" />
             <div class="field">
-            <table class="listing">
+            <table class="listing m-r-table">
                 <thead>
                 <tr>
                     <th class="sel"></th>
@@ -25,8 +25,17 @@
                 </tr>
                 </thead>
                 <tbody>
-                # for rel in is_start + is_end:
+                # for rel in is_start:
+                <tr class="${loop.cycle('even', 'odd')}">
+                    <td class="sel"><input type="checkbox" name="sel" value="${rel.id}"></td>
+                    <td>${wiki_to_oneliner(context, rel.render({'req': req}))}</td>
+                </tr>
+                # endfor
                 <tr>
+                    <th colspan="2"></th>
+                </tr>
+                # for rel in is_end:
+                <tr class="${loop.cycle('even', 'odd')}">
                     <td class="sel"><input type="checkbox" name="sel" value="${rel.id}"></td>
                     <td>${wiki_to_oneliner(context, rel.render({'req': req}))}</td>
                 </tr>

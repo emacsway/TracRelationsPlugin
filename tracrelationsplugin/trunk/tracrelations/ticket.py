@@ -36,12 +36,13 @@ else:
 
 
 class TktRelation(Relation):
+    """Subclass for tickets with special rendering of relations"""
 
     relations = {
-                 # 'blocking': ('is blocking', 'is blocked by'),
-                 'blocking': ('blockiert', 'wird blockiert von'),
-                 'relation': ('relates to', 'is related to'),
-                 'parentchild': ('is parent of', 'is child of')
+                 'blocking': (_("is blocking"), _("is blocked by")),
+                 # 'blocking': (_("blockiert"), _("wird blockiert von")),
+                 'relation': (_("relates to"), _("is related to")),
+                 'parentchild': (_("is parent of"), _("is child of"))
                 }
 
     def render(self, data):
@@ -53,7 +54,7 @@ class TktRelation(Relation):
         """
         req = data.get('req')
         format = data.get('format', 'wiki')
-        reverse = 1 if 'reverse' in self.values else 0
+        reverse = 1 if 'render_reverse' in self.values else 0
         if not req:
             return ''
 
@@ -97,16 +98,22 @@ class TicketRelations(Component):
         detected. `field` can be `None` to indicate an overall problem with the
         ticket. Therefore, a return value of `[]` means everything is OK."""
 
-        res = []
-        # We only check for ticket blocking.
         if ticket['status'] == 'closed':
-            block_msg = _("This ticket is blocked. It can't be resolved while ticket #{blocktkt} is still unresolved.")
+            # Check for ticket blocking.
+            block_msg = _("This ticket is blocked. It can't be resolved while ticket #{blocktkt} is still open.")
             rels = Relation.select(self.env, realm=self.realm, dest=ticket.id, reltype='blocking')
             for rel in rels:
                 tkt = Ticket(self.env, rel['source'])
                 if tkt['status'] != 'closed':
-                    res.append((None, block_msg.format(blocktkt=rel['source'])))
-        return res
+                    yield None, block_msg.format(blocktkt=rel['source'])
+
+            # Check parent child relationship. Ypu only can close a parent when the child(ren) is(are) closed.
+            child_msg = _("This ticket is a parent. It can't be resolved while ticket #{childtkt} is still open.")
+            rels = Relation.select(self.env, realm=self.realm, src=ticket.id, reltype='parentchild')
+            for rel in rels:
+                tkt = Ticket(self.env, rel['dest'])
+                if tkt['status'] != 'closed':
+                    yield None, child_msg.format(childtkt=rel['dest'])
 
     def validate_comment(self, req, comment):
         """Validate ticket comment when appending or editing.
@@ -176,7 +183,7 @@ class TicketRelations(Component):
         # Reverse links
         is_end = list(TktRelation.select(self.env, 'ticket', dest=ticket.id))
         for rel in is_end:
-            rel['reverse'] = True
+            rel['render_reverse'] = True
         rev_links = [to_unicode(rel.render(data)) for rel in is_end]
 
         # This is added to the headers as direction indicators
@@ -294,12 +301,16 @@ class TicketRelations(Component):
 
         is_end = list(TktRelation.select(self.env, 'ticket', dest=tkt.id))
         for rel in is_end:
-            rel['reverse'] = True
+            rel['render_reverse'] = True
+        is_end.sort(key=lambda k: k['type'])
+
+        is_start = list(TktRelation.select(self.env, 'ticket', src=tkt.id))
+        is_start.sort(key=lambda k: k['type'])
 
         data = {'ticket': tkt,
                 'ticket_url': get_resource_url(self.env, tkt.resource, req.href),
                 'fragment': is_fragment,
-                'is_start': list(TktRelation.select(self.env, 'ticket', src=tkt.id)),
+                'is_start': is_start,
                 'is_end': is_end,
                 'relation_types': rel_options
                 }
