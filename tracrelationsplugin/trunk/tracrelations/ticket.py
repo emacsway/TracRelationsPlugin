@@ -8,7 +8,7 @@ import re
 from pkg_resources import resource_filename
 from trac.core import Component, implements
 from trac.perm import PermissionError
-from trac.resource import get_resource_url
+from trac.resource import get_resource_url, ResourceExistsError
 from trac.ticket.api import ITicketManipulator, TicketSystem
 from trac.ticket.model import Ticket
 from trac.util.html import tag
@@ -19,7 +19,7 @@ from trac.web.chrome import add_notice, add_script, add_script_data, add_stylesh
     ITemplateProvider, web_context
 from trac.wiki.formatter import format_to_html, format_to_oneliner
 
-from .api import RelationSystem
+from .api import RelationSystem, ValidationError
 from .jtransform import JTransformer
 from .model import Relation
 
@@ -41,31 +41,35 @@ class TktRelation(Relation):
                  # 'blocking': ('is blocking', 'is blocked by'),
                  'blocking': ('blockiert', 'wird blockiert von'),
                  'relation': ('relates to', 'is related to'),
-                 'parentchild': ('is parent of', 'is child of')}
+                 'parentchild': ('is parent of', 'is child of')
+                }
 
     def render(self, data):
+        """Overriden rendering method mainly returning wiki text for a relation.
+
+        :param data: a dict holding at least: {'req': req} the current Request
+        :return wiki text for this relation. If the data dict contains 'format': 'html'
+                then HTML Markup is returned.
+        """
         req = data.get('req')
         format = data.get('format', 'wiki')
-        reverse = True if 'reverse' in self.values else False
+        reverse = 1 if 'reverse' in self.values else 0
         if not req:
             return ''
 
         ctxt = web_context(req)
         reltype = self.values['type']
 
-        idx = 1 if reverse else 0
-        typelbl = self.relations.get(reltype, (reltype, reltype))[idx]
+        typelbl = self.relations.get(reltype, (reltype, reltype))[reverse]
 
         fdata = {'src': self.values['source'],
-                 'arrow': '',  # self.arrow_right,
                  'dest': self.values['dest'],
                  'typelbl': typelbl
                  }
         if not reverse:
-            wiki = u"!#{src} ''{typelbl}'' #{dest}{arrow}".format(**fdata)
+            wiki = u"!#{src} ''{typelbl}'' #{dest}".format(**fdata)
         else:
-            fdata['arrow'] = ''  # self.arrow_left
-            wiki = u"{arrow}#{src} ''{typelbl}'' !#{dest}".format(**fdata)
+            wiki = u"!#{dest} ''{typelbl}'' #{src}".format(**fdata)
 
         if format == 'wiki':
             return wiki
@@ -75,14 +79,45 @@ class TktRelation(Relation):
 
 
 class TicketRelations(Component):
-    implements(IRequestFilter, IRequestHandler, ITemplateProvider)
+    implements(ITicketManipulator, ITemplateProvider, IRequestFilter, IRequestHandler)
 
     realm = TicketSystem.realm
 
-    # IRequestFilter methods
+    # ITicketManipulator methods
 
-    def pre_process_request(self, req, handler):
-        return handler
+    def prepare_ticket(self, req, ticket, fields, actions):
+        """Not currently called, but should be provided for future
+        compatibility."""
+        pass
+
+    def validate_ticket(self, req, ticket):
+        """Validate ticket properties when creating or modifying.
+
+        Must return a list of `(field, message)` tuples, one for each problem
+        detected. `field` can be `None` to indicate an overall problem with the
+        ticket. Therefore, a return value of `[]` means everything is OK."""
+
+        res = []
+        # We only check for ticket blocking.
+        if ticket['status'] == 'closed':
+            block_msg = _("This ticket is blocked. It can't be resolved while ticket #{blocktkt} is still unresolved.")
+            rels = Relation.select(self.env, realm=self.realm, dest=ticket.id, reltype='blocking')
+            for rel in rels:
+                tkt = Ticket(self.env, rel['source'])
+                if tkt['status'] != 'closed':
+                    res.append((None, block_msg.format(blocktkt=rel['source'])))
+        return res
+
+    def validate_comment(self, req, comment):
+        """Validate ticket comment when appending or editing.
+
+        Must return a list of messages, one for each problem detected.
+        The return value `[]` indicates no problems.
+
+        :since: 1.3.2
+        """
+        return []
+
 
     def create_manage_relations_dialog(self):
         tmpl = u"""<div id="manage-rel-dialog" title="Manage Relations" style="display: none">
@@ -104,6 +139,19 @@ class TicketRelations(Component):
         return templ.format(tkt=ticket.id, modlabel=_('Modify') if modify else _('Add'))
 
     def create_relations_wiki(self, req, ticket):
+        """Create wiki text of all relations to be rendered in the ticket property box.
+
+        :param req: the current Request object
+        :param ticket: the currently diplayed ticket. A Trac Ticket object
+        :return wikitext, have_relations. The former is Trac wiki text, the latter is True if this
+                ticket as any relations.
+
+        'have_relations' is used to decide later on if we show an 'add' button or a 'modify' button.
+
+        Wiki text is used for rendering, because this will automatically resolve ticket ids like #2
+        to valid links and we can easily format the output using all the Trac magic like bold, italic
+        or WikiProcessors.
+        """
         table_tmpl = """
         {{{#!table class="" style="width: 100%%" 
         {{{#!tr style="vertical-align: top"
@@ -138,6 +186,11 @@ class TicketRelations(Component):
         wiki = table_tmpl % (aright, '[[BR]]'.join(is_start),
                              aleft, '[[BR]]'.join(rev_links))
         return wiki, any((is_end, is_start))
+
+    # IRequestFilter methods
+
+    def pre_process_request(self, req, handler):
+        return handler
 
     def post_process_request(self, req, template, data, metadata=None):
 
@@ -213,7 +266,7 @@ class TicketRelations(Component):
                     else:
                         rel = Relation(self.env, 'ticket', src, dest, rel_type)
                     RelationSystem.add_relation(self.env, rel)
-                except ValueError as e:
+                except (ValueError, ValidationError, ResourceExistsError) as e:
                     add_warning(req, e)
                 else:
                     txt = u"#{src} {arrow} #{dest}".format(src=rel['source'], dest=rel['dest'], arrow=rel.arrow_both)
