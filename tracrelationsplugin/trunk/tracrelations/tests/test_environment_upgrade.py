@@ -7,7 +7,7 @@
 import unittest
 from trac.test import EnvironmentStub
 from tracrelations.api import RelationSystem, tables_v1
-
+from tracrelations.tests.util import revert_schema
 
 class TestEnvironmentUpgrade(unittest.TestCase):
 
@@ -15,6 +15,7 @@ class TestEnvironmentUpgrade(unittest.TestCase):
         self.env = EnvironmentStub(default_data=True,
                                    enable=["trac.*", "tracrelations.*"])
         self.plugin = RelationSystem(self.env)
+        revert_schema(self.env)
 
     def test_install_v1(self):
         self.plugin.upgrade_environment()

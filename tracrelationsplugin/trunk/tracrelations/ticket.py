@@ -18,6 +18,8 @@ from trac.web.api import IRequestFilter, IRequestHandler
 from trac.web.chrome import add_notice, add_script, add_script_data, add_stylesheet, add_warning, Chrome,\
     ITemplateProvider, web_context
 from trac.wiki.formatter import format_to_html, format_to_oneliner
+
+from .api import RelationSystem
 from .jtransform import JTransformer
 from .model import Relation
 
@@ -210,7 +212,7 @@ class TicketRelations(Component):
                         rel = Relation(self.env, 'ticket', dest, src, rel_type[1:])
                     else:
                         rel = Relation(self.env, 'ticket', src, dest, rel_type)
-                    rel.insert()
+                    RelationSystem.add_relation(self.env, rel)
                 except ValueError as e:
                     add_warning(req, e)
                 else:
