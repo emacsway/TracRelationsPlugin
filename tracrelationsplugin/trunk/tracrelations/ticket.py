@@ -178,19 +178,20 @@ class TicketRelations(Component):
         }}}"""
 
         data = {'req': req}
-        is_start = [rel.render(data) for rel in TktRelation.select(self.env, 'ticket', src=ticket.id)]
+        is_start = sorted(TktRelation.select(self.env, 'ticket', src=ticket.id), key=lambda k: k['type'])
+        links = [rel.render(data) for rel in is_start]
 
         # Reverse links
-        is_end = list(TktRelation.select(self.env, 'ticket', dest=ticket.id))
+        is_end = sorted(TktRelation.select(self.env, 'ticket', dest=ticket.id), key=lambda k: k['type'])
         for rel in is_end:
             rel['render_reverse'] = True
-        rev_links = [to_unicode(rel.render(data)) for rel in is_end]
+        rev_links = [rel.render(data) for rel in is_end]
 
         # This is added to the headers as direction indicators
         aright = '` %s `' % Relation.arrow_right if is_start else ''
         aleft = '` %s (reverse) `' % Relation.arrow_left if is_end else ''
 
-        wiki = table_tmpl % (aright, '[[BR]]'.join(is_start),
+        wiki = table_tmpl % (aright, '[[BR]]'.join(links),
                              aleft, '[[BR]]'.join(rev_links))
         return wiki, any((is_end, is_start))
 
@@ -299,13 +300,11 @@ class TicketRelations(Component):
             rel_options.append((key, val[0] + u" " + aright))
             rel_options.append(('!' + key, aleft + u" " + val[1]))
 
-        is_end = list(TktRelation.select(self.env, 'ticket', dest=tkt.id))
+        is_end = sorted(TktRelation.select(self.env, 'ticket', dest=tkt.id), key=lambda k: k['type'])
         for rel in is_end:
             rel['render_reverse'] = True
-        is_end.sort(key=lambda k: k['type'])
 
-        is_start = list(TktRelation.select(self.env, 'ticket', src=tkt.id))
-        is_start.sort(key=lambda k: k['type'])
+        is_start = sorted(TktRelation.select(self.env, 'ticket', src=tkt.id), key=lambda k: k['type'])
 
         data = {'ticket': tkt,
                 'ticket_url': get_resource_url(self.env, tkt.resource, req.href),
