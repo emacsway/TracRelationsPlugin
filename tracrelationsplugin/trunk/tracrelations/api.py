@@ -4,7 +4,7 @@
 #
 # License: 3-clause BSD
 #
-from trac.core import Component, implements, TracError
+from trac.core import Component, ExtensionPoint, implements, Interface, TracError
 from trac.db.api import DatabaseManager
 from trac.db.schema import Column, Table
 from trac.env import IEnvironmentSetupParticipant
@@ -107,6 +107,15 @@ def delete_relations_table(env):
         db("DELETE FROM system WHERE name='relation_version'")
 
 
+class IRelationChangeListener(Interface):
+
+    def relation_added(relation):
+        """Called when a relation was added"""
+
+    def relation_deleted(relation):
+        """Called when a relation was deleted"""
+
+
 def check_cycle(env, relation):
     """Check if the given relation causes a cycle.
 
@@ -135,8 +144,9 @@ def check_cycle(env, relation):
 class RelationSystem(Component):
     implements(IEnvironmentSetupParticipant)
 
-    @classmethod
-    def add_relation(cls, env, relation):
+    change_listeners = ExtensionPoint(IRelationChangeListener)
+
+    def add_relation(self, relation):
         """Add a relation to the database after doing some validation.
 
         This method does the actual relation.insert() call of the Relation object.
@@ -155,11 +165,14 @@ class RelationSystem(Component):
             raise ValidationError("Validation failed. Source and destination must be different.")
 
         # Test for cycle
-        check_cycle(env, relation)
+        check_cycle(self.env, relation)
 
         # We don't check for duplicates. This will fail with ResourceExistsError
         # in case of duplicates.
         relation.insert()
+
+        for listener in self.change_listeners:
+            listener.relation_added(relation)
 
     # IEnvironmentSetupParticipant methods
 

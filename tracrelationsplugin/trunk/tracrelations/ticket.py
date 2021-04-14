@@ -269,7 +269,7 @@ class TicketRelations(Component):
                         rel = Relation(self.env, 'ticket', dest, src, rel_type[1:])
                     else:
                         rel = Relation(self.env, 'ticket', src, dest, rel_type)
-                    RelationSystem.add_relation(self.env, rel)
+                    RelationSystem(self.env).add_relation(rel)
                 except (ValueError, ValidationError, ResourceExistsError) as e:
                     add_warning(req, e)
                 else:

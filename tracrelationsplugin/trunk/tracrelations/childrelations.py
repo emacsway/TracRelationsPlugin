@@ -23,7 +23,7 @@ from trac.web.chrome import ITemplateProvider
 from trac.web.chrome import add_notice, add_script, add_script_data, add_stylesheet, add_warning
 from trac.wiki.formatter import format_to_oneliner
 
-from tracrelations.api import RelationSystem
+from tracrelations.api import IRelationChangeListener, RelationSystem
 from tracrelations.jtransform import JTransformer
 from tracrelations.model import Relation
 
@@ -187,7 +187,7 @@ class ChildRelationsAdminPanel(Component):
 class ChildTicketsModule(Component):
     """Component which inserts the child ticket data into the ticket page"""
 
-    implements(IRequestFilter, ITemplateProvider, ITicketChangeListener,
+    implements(IRelationChangeListener, IRequestFilter, ITemplateProvider, ITicketChangeListener,
                ITicketManipulator)
 
     max_view_depth = IntOption('Relations-child', 'max_view_depth', default=3,
@@ -350,7 +350,7 @@ class ChildTicketsModule(Component):
         if ticket['relationdata']:
             rel = Relation(self.env, 'ticket', src=ticket['relationdata'],
                            dest=ticket.id, type='parentchild')
-            RelationSystem.add_relation(self.env, rel)
+            RelationSystem(self.env).add_relation(rel)
 
     def ticket_deleted(self, ticket):
         pass
@@ -364,6 +364,17 @@ class ChildTicketsModule(Component):
 
         `changes` is a dictionary of tuple `(oldvalue, newvalue)`
         containing the ticket change of the fields that have changed."""
+        pass
+
+    # IRelationChangeListener methods
+
+    def relation_added(self, relation):
+        """Called when a relation was added"""
+        # self.log.info('################ Relation added: %s' % repr(relation))
+        pass
+
+    def relation_deleted(self, relation):
+        """Called when a relation was deleted"""
         pass
 
     # ITemplateProvider methods
