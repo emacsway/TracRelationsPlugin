@@ -1,0 +1,19 @@
+div#childtickets {
+  padding: 0.5em;
+}
+
+table.ct-table {
+  font-size: 85%;
+  background-color: #fcfcf4
+}
+
+#parenttype div {
+  float: left;
+  min-width: 13em;
+  max-width: 33%;
+  padding: 0 2em 0 0;
+}
+
+table.ct-admin-table tbody tr.disabled {
+  color: lightgray
+}
