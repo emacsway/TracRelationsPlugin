@@ -125,7 +125,6 @@ class TicketRelations(Component):
         """
         return []
 
-
     def create_manage_relations_dialog(self):
         tmpl = u"""<div id="manage-rel-dialog" title="Manage Relations" style="display: none">
         <div id="m-r-body"></div>
@@ -207,24 +206,21 @@ class TicketRelations(Component):
             if tkt:
                 have_links = False
                 if 'fields' in data:
-                    field = data['fields'].by_name('relations')
-                    if field:
-                        pass
-                    else:
-                        tkt.values['relations'], have_links = self.create_relations_wiki(req, tkt)  # Activates field
-                        data['fields'].append({
-                            'name': 'relations',
-                            'label': 'Relations',
-                            # 'rendered': html,  # format_to_html(self.env, web_context(req, tkt.resource), '== Baz\n' + tst_wiki),
-                            # 'editable': False,
-                            # 'value': "",
-                            'type': 'textarea',  # Full row
-                            'format': 'wiki'
-                        })
+                    # Create a temporary field for display only
+                    tkt.values['relations'], have_links = self.create_relations_wiki(req, tkt)  # Activates field
+                    data['fields'].append({
+                        'name': 'relations',
+                        'label': 'Relations',
+                        # 'rendered': html,  # format_to_html(self.env, web_context(req, tkt.resource), '== Baz\n' + tst_wiki),
+                        # 'editable': False,
+                        # 'value': "",
+                        'type': 'textarea',  # Full row
+                        'format': 'wiki'
+                    })
 
                 filter_lst = []
 
-                # Prepare the manage dialog: 'modify' button and dialog div for jquery-ui.
+                # Prepare the 'modify' button and manage dialog div for jquery-ui.
                 xform = JTransformer('table.properties #h_relations')
                 filter_lst.append(xform.prepend(self.create_relation_manage_form(tkt, have_links)))
                 xform = JTransformer('div#content')

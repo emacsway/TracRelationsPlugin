@@ -1,0 +1,139 @@
+{#
+# Copyright (C) 2020 Cinc
+#
+# All rights reserved.
+#
+# License: 3-clause BSD
+#}
+# extends 'admin.html'
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>
+          # block admintitle
+          ${_("Parent Types")}
+          # endblock admintitle
+        </title>
+        # block head
+        ${ super() }
+        # endblock head
+    </head>
+    <body>
+        # block adminpanel
+        # if view == 'detail':
+        <h2>${_("Parent Type:")} ${parenttype.name}</h2>
+        <form id="modparenttype" method="post" action="">
+            ${jmacros.form_token_input()}
+            <table class="listing" id="parenttype">
+                <thead>
+                    <tr>
+                        <th>${_("Option")}</th>
+                        <th>${_("Value")}</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    <tr>
+                        <!-- Allow Child Option -->
+                        <td><label>${_("Allow Child Tickets")}</label></td>
+                        <td><input type="checkbox" name="allow_child_tickets" value="True"
+                                   ${{"checked": parenttype.allow_child_tickets}|htmlattr} />
+                        </td>
+                    </tr>
+                    <tr>
+                        <!-- Table Headers Option -->
+                        <td>${_("Table Headers")}</td>
+                        <td>
+                            # for header, checked in table_headers.items():
+                            <div>
+                                <label>
+                                <input type="checkbox" name="headers" value="${header}"
+                                       ${{"checked": checked}|htmlattr} />
+                                ${field_names[header]}</label>
+                            </div>
+                            # endfor
+                        </td>
+                    </tr>
+                    <tr>
+                        <!-- Restricted Children Option -->
+                        <td>${_("Restricted Child Types")}</td>
+                        <td>
+                            # for ptype, checked in parent_types.items():
+                            <div>
+                                <label>
+                                <input type="checkbox" name="restricted" value="${ptype}"
+                                       ${{"checked": checked}|htmlattr} />
+                                    ${ptype}
+                                </label>
+                            </div>
+                            # endfor
+                        </td>
+                    </tr>
+                    <tr>
+                        <!-- Inherited Fields Option -->
+                        <td>${_("Inherited Fields")}</td>
+                        <td>
+                            # for field, checked in inherited_fields.items():
+                            <div>
+                                <label>
+                                    <input type="checkbox" name="inherited" value="${field}"
+                                           ${{"checked": checked}|htmlattr} />
+                                    ${field_names[field]}</label>
+                            </div>
+                            # endfor
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="buttons">
+                <input type="submit" name="save" value="${_('Apply changes')}"/>
+            </div>
+        </form>
+
+        # else:
+
+        <h2>${_("Parent Types")} <span class="trac-count">(${len(ticket_types)})</span></h2>
+
+        <form id="childtickets_table" method="post" action="">
+            ${jmacros.form_token_input()}
+            <table class="listing ct-admin-table" id="parenttypelist">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>${_("Allow Child Tickets?")}</th>
+                        <th>${_("New Child Ticket Label")}</th>
+                        <th>${_("Table Headers")}</th>
+                        <th>${_("Restricted Child Types")}</th>
+                        <th>${_("Inherited Fields")}</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    # for type in ticket_types:
+                    #    set table_headers = []
+                    #    for item in type.table_headers:
+                          ${table_headers.append(field_names[item])}
+                    #    endfor
+                    #    set inherited = []
+                    #    for item in type.inherited_fields:
+                          ${inherited.append(field_names[item])}
+                    #    endfor
+                        <tr class="${type.table_row_class}">
+                            <td class="name"><a
+                                href="${'/'.join([base_href,type.name])}">${type.name}</a>
+                            </td>
+                            <td>${type.allow_child_tickets}</td>
+                            <td>${', '.join(table_headers)}</td>
+                            <td>${', '.join(type.restrict_to_child_types)}</td>
+                            <td>${', '.join(inherited)}</td>
+                        </tr>
+                    # endfor
+                </tbody>
+            </table>
+            <p class="help">
+                ${_("Select a parent ticket type to modify its default behaviour when/if child tickets are generated.")}
+            </p>
+        </form>
+        # endif
+    # endblock
+    </body>
+</html>
