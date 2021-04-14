@@ -36,7 +36,7 @@ class TestRelationSystem(unittest.TestCase):
                     ('ticket', '1', '4', 'rel2'))
         for item in rel_data:
             relation = Relation(self.env, *item)
-            self.plugin.add_relation(self.env, relation)
+            self.plugin.add_relation(relation)
 
     def test_add_relation(self):
         """That's basically the same test as done for the model class"""
@@ -49,7 +49,7 @@ class TestRelationSystem(unittest.TestCase):
         rel_data = ('ticket', '1', '1', 'rel1')
 
         relation = Relation(self.env, *rel_data)
-        self.assertRaises(ValidationError, self.plugin.add_relation, self.env, relation)
+        self.assertRaises(ValidationError, self.plugin.add_relation, relation)
 
     def test_validate_cycle(self):
         rel_data = (('ticket', '1', '2', 'rel1'),
@@ -59,16 +59,16 @@ class TestRelationSystem(unittest.TestCase):
 
         for item in rel_data[:-1]:
             relation = Relation(self.env, *item)
-            self.plugin.add_relation(self.env, relation)
+            self.plugin.add_relation(relation)
         relation = Relation(self.env, *rel_data[-1])
-        self.assertRaises(ValidationError, self.plugin.add_relation, self.env, relation)
+        self.assertRaises(ValidationError, self.plugin.add_relation, relation)
 
     def test_duplicate(self):
         self._add_relations()
         rel_data = ('ticket', '1', '2', 'rel1')
 
         relation = Relation(self.env, *rel_data)
-        self.assertRaises(ResourceExistsError, self.plugin.add_relation, self.env, relation)
+        self.assertRaises(ResourceExistsError, self.plugin.add_relation, relation)
 
 
 if __name__ == '__main__':
