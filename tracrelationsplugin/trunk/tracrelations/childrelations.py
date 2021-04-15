@@ -20,7 +20,7 @@ from trac.util.text import exception_to_unicode, to_unicode
 from trac.util.translation import _
 from trac.web.api import IRequestFilter
 from trac.web.chrome import ITemplateProvider
-from trac.web.chrome import add_notice, add_script, add_script_data, add_stylesheet, add_warning
+from trac.web.chrome import add_notice, add_script, add_script_data, add_stylesheet, add_warning, Chrome
 from trac.wiki.formatter import format_to_html, format_to_oneliner
 
 from tracrelations.api import IRelationChangeListener, RelationSystem
@@ -420,11 +420,12 @@ class ChildTicketRelations(Component):
         @param field_format: dict with key: name of field, val: type of field
         :param data:
         """
+        # Is this too slow or do we run with it here?
+        chrome = Chrome(self.env)
+
         def get_value(field):
-            if field == 'owner':
-                return data['owner_link']
-            elif field == 'reporter':
-                return data['reporter_link']
+            if field in ('owner', 'reporter'):
+                return chrome.authorinfo(data['context'].req, ticket[field])
             elif field_format[field] == 'wiki':
                 return format_to_oneliner(self.env, data['context'], ticket[field])
             else:
