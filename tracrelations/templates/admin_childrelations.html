@@ -94,9 +94,9 @@
 
         <h2>${_("Parent Types")} <span class="trac-count">(${len(ticket_types)})</span></h2>
 
-        <form id="childtickets_table" method="post" action="">
+        <form id="childrelations-table" method="post" action="">
             ${jmacros.form_token_input()}
-            <table class="listing ct-admin-table" id="parenttypelist">
+            <table class="listing childrel-admin-table" id="parenttypelist">
                 <thead>
                     <tr>
                         <th>Name</th>

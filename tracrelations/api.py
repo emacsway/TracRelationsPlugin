@@ -150,7 +150,8 @@ class RelationSystem(Component):
         """Add a relation to the database after doing some validation.
 
         This method does the actual relation.insert() call of the Relation object.
-        Before doing so some validation is performed.
+        Before doing so some validation is performed. After creating the relation
+        the change listeners are called.
 
         :param relation: a Relation object which is filled with the relevant data
 
@@ -173,6 +174,11 @@ class RelationSystem(Component):
 
         for listener in self.change_listeners:
             listener.relation_added(relation)
+
+    def delete_relation(self, relation):
+        relation.delete()
+        for listener in self.change_listeners:
+            listener.relation_deleted(relation)
 
     # IEnvironmentSetupParticipant methods
 
