@@ -80,6 +80,23 @@ class TktRelation(Relation):
 
 
 class TicketRelations(Component):
+    """Relations of different types for tickets.
+
+    This plugin uses the {{{RelationSystem}}} to provide the following ticket relations:
+
+    * simple relations between tickets without any special semantics ({{{relates to}}})
+    * allow a ticket to {{{block}}} another ticket
+    * specify {{{parent -> child}}} relationships
+
+    The plugin adds the relationship information to the ticket properties box when
+    a ticket page is shown and allows to manage relations between tickets.
+
+    For {{{blocked}}} tickets it makes sure that a ticket can't be resolved as long
+    as any blocking ticket is still open.
+
+    {{{Parent -> child}}} relationships don't get any special handling here. There is an
+    additional plugin for that.
+    """
     implements(ITicketManipulator, ITemplateProvider, IRequestFilter, IRequestHandler)
 
     realm = TicketSystem.realm

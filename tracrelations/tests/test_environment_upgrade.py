@@ -6,7 +6,7 @@
 #
 import unittest
 from trac.test import EnvironmentStub
-from tracrelations.api import RelationSystem, tables_v1
+from tracrelations.api import RelationSystem
 from tracrelations.tests.util import revert_schema
 
 class TestEnvironmentUpgrade(unittest.TestCase):
