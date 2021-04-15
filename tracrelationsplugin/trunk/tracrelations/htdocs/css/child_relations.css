@@ -1,10 +1,9 @@
-div#childtickets {
+div#childrelations {
   padding: 0.5em;
 }
 
-table.ct-table {
+table.childrel-table {
   font-size: 85%;
-  background-color: #fcfcf4
 }
 
 #parenttype div {
@@ -14,6 +13,6 @@ table.ct-table {
   padding: 0 2em 0 0;
 }
 
-table.ct-admin-table tbody tr.disabled {
+table.childrel-admin-table tbody tr.disabled {
   color: lightgray
 }

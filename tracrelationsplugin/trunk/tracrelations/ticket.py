@@ -279,7 +279,8 @@ class TicketRelations(Component):
                 sel = req.args.getlist('sel')
                 for relid in sel:
                     rel = TktRelation(self.env, relation_id=relid)
-                    Relation.delete_relation_by_id(self.env, relid)
+                    # Relation.delete_relation_by_id(self.env, relid)
+                    RelationSystem(self.env).delete_relation(rel)
                     txt = u"#{src} {arrow} #{dest}".format(src=rel['source'], dest=rel['dest'], arrow=rel.arrow_both)
                     add_notice(req, "Deleted relation %s" % txt)
 

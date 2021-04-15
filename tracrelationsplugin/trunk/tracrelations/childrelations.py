@@ -8,24 +8,27 @@
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution.
 #
-from pkg_resources import get_distribution, parse_version, resource_filename
+from pkg_resources import resource_filename
 from trac.admin import IAdminPanelProvider
+from trac.cache import cached
 from trac.config import IntOption
-from trac.env import IEnvironmentSetupParticipant
 from trac.core import *
-from trac.ticket.api import ITicketChangeListener, ITicketManipulator, TicketSystem
-from trac.ticket.model import Type
+from trac.ticket.api import ITicketChangeListener, TicketSystem
+from trac.ticket.model import Ticket, Type
 from trac.util.html import tag
 from trac.util.text import exception_to_unicode, to_unicode
 from trac.util.translation import _
 from trac.web.api import IRequestFilter
 from trac.web.chrome import ITemplateProvider
 from trac.web.chrome import add_notice, add_script, add_script_data, add_stylesheet, add_warning
-from trac.wiki.formatter import format_to_oneliner
+from trac.wiki.formatter import format_to_html, format_to_oneliner
 
 from tracrelations.api import IRelationChangeListener, RelationSystem
 from tracrelations.jtransform import JTransformer
 from tracrelations.model import Relation
+
+
+INDENT_PERCENT = 3  # the indentation for the child ticket tree items
 
 
 def _save_config(config, req, log):
@@ -72,7 +75,7 @@ class ChildRelationsAdminPanel(Component):
 
     def get_admin_panels(self, req):
         if 'TICKET_ADMIN' in req.perm('admin', 'childrelations/types'):
-            yield ('childrelations', _('Relations'), 'types',
+            yield ('childrelations', _('Ticket Relations'), 'types',
                    _('Parent Types'))
 
     def render_admin_panel(self, req, cat, page, parenttype):
@@ -187,16 +190,14 @@ class ChildRelationsAdminPanel(Component):
 class ChildTicketsModule(Component):
     """Component which inserts the child ticket data into the ticket page"""
 
-    implements(IRelationChangeListener, IRequestFilter, ITemplateProvider, ITicketChangeListener,
-               ITicketManipulator)
+    implements(IRelationChangeListener, IRequestFilter, ITemplateProvider, ITicketChangeListener)
 
-    max_view_depth = IntOption('Relations-child', 'max_view_depth', default=3,
+    max_view_depth = IntOption('relations-child', 'max_view_depth', default=3,
                                doc="Maximum depth of child ticket tree shown on the ticket page.")
 
     # IRequestFilter methods
 
     def pre_process_request(self, req, handler):
-
         return handler
 
     def post_process_request(self, req, template, data, content_type):
@@ -235,12 +236,17 @@ class ChildTicketsModule(Component):
                                                             to_unicode(rendered_parent)))
 
                 if ticket.exists:
-                    buttons = self.create_child_ticket_buttons(req, ticket)
 
+                    xform = JTransformer('div#ticket')
+                    tree = self.create_childticket_tree_html(req, data, ticket)
+                    filter_lst.append(xform.after(to_unicode(tree)))
+
+                    buttons = self.create_child_ticket_buttons(req, ticket)
                     if buttons:
                         # xpath: //div[@id="ticket"]
                         xform = JTransformer('div#ticket')
                         filter_lst.append(xform.after(to_unicode(buttons)))
+
 
                 add_stylesheet(req, 'ticketrelations/css/child_relations.css')
                 add_script_data(req, {'childrels_filter': filter_lst})
@@ -248,12 +254,188 @@ class ChildTicketsModule(Component):
 
         return template, data, content_type
 
+    @cached
+    def childtickets(self):
+        children = {}
+        for rel in Relation.select(self.env, 'ticket', reltype='parentchild'):
+            self.log.info('  Relation: %s' % repr(rel))
+            children.setdefault(int(rel['source']), []).append(int(rel['dest']))
+        return children
+
+    def create_childticket_tree_html(self, req, data, ticket):
+
+        # Modify ticket.html with sub-ticket table, create button, etc...
+        # As follows:
+        # - If ticket has no child tickets and child tickets are NOT allowed then skip.
+        # - If ticket has child tickets and child tickets are NOT allowed (ie. rules changed or ticket type changed after children were assigned),
+        #   print list of tickets but do not allow any tickets to be created.
+        # - If child tickets are allowed then print list of child tickets or 'No Child Tickets' if non are currently assigned.
+        if ticket and ticket.exists:
+            def indented_table(tkt, treecolumns, indent=0):
+                """Create a table from the ticket tkt which may be indented.
+
+                :param tkt:            a Trac ticket
+                :param treecolumns:    list of column names
+                :param indent:         level of indentation for this table. Int value starting with 0.
+
+                The table has a header holding the items described by treecolums. Next row
+                are the data items matching the header. The following row spans all columns
+                and holds the ticket description.
+                If the description contains wiki data it will be porperly parsed and inserted
+                into the result.
+                For each level of indentation (0, 1, 2, ...) the table will be indented by a
+                percentage defined as INDENT_PERCENT (usually 3..5%).
+                """
+                # Admin may have removed a custom field still in the list of table headers
+                treecolumns = [col for col in treecolumns if col in field_names]
+                desc = format_to_html(self.env, data['context'], tkt['description'])
+
+                if tkt['status'] == 'closed':
+                    cls = "listing childrel-table closed"
+                else:
+                    cls = "listing childrel-table"
+
+                # Return the table
+                return tag.table(
+                    tag.thead(
+                        tag.tr(tag.th("Ticket", class_="id"),
+                               [tag.th(field_names[col], class_=col) for col in treecolumns]
+                               )
+                    ),
+                    tag.tbody(self._table_row(data, tkt, treecolumns, field_format),
+                              tag.tr(
+                                  tag.td(desc, class_="description", colspan="%s" % str(1 + len(treecolumns))),
+                                  class_="even",
+                              ),
+                              tag.tr(
+                                  tag.td(_("(Rest of the child ticket tree is hidden)"),
+                                         class_="system-message notice", colspan="%s" % str(1 + len(treecolumns))),
+                                  class_="even",
+                              ) if tkt.max_view else None,
+                              ),
+                    class_=cls,
+                    style="margin-left: %s%%; width : %s%%" % (str(indent * INDENT_PERCENT),
+                                                               str(100 - indent * INDENT_PERCENT)),
+                )
+
+            def create_table_tree(tickets):
+                """
+                    Create a tree of ticket tables from the tickets in the list tickets.
+                """
+                childtree = []
+                for tkt in tickets:
+                    if tkt.indent == 1:
+                        div = tag.div(class_="childrel-tables")  #  note the trailing s in the class
+                        childtree.append(div)
+
+                    treecolumns = self.config.getlist('relations-child', 'parent.%s.table_headers' % tkt['type'],
+                                                      default=['summary', 'owner'])
+                    # The description will always be displayed in separate td no matter whats defined in the ini
+                    if 'description' in treecolumns:
+                        treecolumns.remove('description')
+
+                    div.append(indented_table(tkt, treecolumns, tkt.indent - 1))
+                return childtree
+
+            def indent_children(tkt, all_tickets, indent=0):
+                tkt.max_view = False
+                if tkt.id in self.childtickets:
+                    indent += 1
+                    for child in self.childtickets[tkt.id]:
+                        if indent > self.max_view_depth:
+                            tkt.max_view = True  # Mark that we don't want to show more children
+                            return
+                        child = Ticket(self.env, child)
+                        child.indent = indent
+                        all_tickets.append(child)
+                        indent_children(child, all_tickets, indent)
+
+            # Are child tickets allowed?
+            childtickets_allowed = self.config.getbool('relations-child', 'parent.%s.allow_child_tickets' % ticket['type'])
+
+            # Are there any child tickets to display?
+            childtickets = [Ticket(self.env, n) for n in self.childtickets.get(ticket.id, [])]
+            # (tempish) fix for #8612 : force sorting by ticket id
+            childtickets = sorted(childtickets, key=lambda t: t.id)
+
+            # If there are no childtickets and the ticket should not
+            # have any child tickets, we can simply drop out here.
+            if not childtickets_allowed and not childtickets:
+                return ''
+
+            field_names = TicketSystem(self.env).get_ticket_field_labels()
+            # We need this to decide if we should wikify a field in the child table
+            field_format = {item['name']: item.get('format', None) for item in TicketSystem(self.env).get_ticket_fields()}
+            # The additional section on the ticket is built up of (potentially) three parts: header, ticket table, buttons. These
+            # are all 'wrapped up' in a 'div' with the 'attachments' id (we'll just pinch this to make look and feel consistent with any
+            # future changes!)
+            snippet = tag.div(id="ct-children", class_="collapsed")  # foldable child tickets area
+
+            # Our 'main' display consists of divs.
+            # buttonform = tag.div()
+            treediv = tag.div()  # This is for displaying the child ticket tree
+
+            # Test if the ticket has children: If so, then list in pretty table.
+            if childtickets:
+                all_tickets = []  # We need this var for the recursive _indent_children() collecting the tickets
+                indent_children(ticket, all_tickets)
+                # This is a list of whole trees of child->grandchild->etc
+                # for each child ticket
+                treediv = create_table_tree(all_tickets)
+
+            snippet.append(tag.h3("Child Ticket Tree ",
+                                  tag.span('(%s)' % len(childtickets), class_="trac-count"),
+                                  class_="foldable"))
+            if childtickets:
+                snippet.append(tag.div(treediv, id="childrelations"))
+
+            return snippet
+        else:
+            return ''
+
+    def _table_row(self, data, ticket, columns, field_format):
+        """
+        @param data: data dictionarty givn to the ticket page
+        @param ticket: Ticket object with the data
+        @param columns: ticket fields to be shown
+        @param field_format: dict with key: name of field, val: type of field
+        :param data:
+        """
+        # Is the ticket closed?
+        ticket_class = ''
+        if ticket['status'] == 'closed':
+            ticket_class = 'closed'
+
+        def get_value(field):
+            if field == 'owner':
+                return data['owner_link']
+            elif field == 'reporter':
+                return data['reporter_link']
+            elif field_format[field] == 'wiki':
+                return format_to_oneliner(self.env, data['context'], ticket[field])
+            else:
+                return ticket[field]
+
+        return tag.tr(
+            tag.td(format_to_oneliner(self.env, data['context'], "#%s" % ticket.id)),
+            [tag.td(get_value(s), class_=s) for s in columns],
+            class_="odd"
+        )
+
     def create_child_ticket_buttons(self, req, ticket):
-        """Create the button div holding buttons for creating child tickets."""
+        """Create the button div holding buttons for creating child tickets.
+
+        :param req: Request object for the ticket page
+        :param ticket: Ticket object, guaranteed to exist
+        :return unicode string
+        """
 
         # Are child tickets allowed?
         childtickets_allowed = self.config.getbool('relations-child', 'parent.%s.allow_child_tickets' % ticket['type'])
 
+        button_div = tag.div()
+
+        # trac.ini : child tickets are allowed - Set up 'create new ticket' buttons.
         if childtickets_allowed and 'TICKET_CREATE' in req.perm(ticket.resource):
 
             # Always pass these fields, e.g. the parent ticket id
@@ -262,7 +444,7 @@ class ChildTicketsModule(Component):
             # Pass extra fields defined in inherit parameter of parent
             inherited_child_fields = [
                 tag.input(type="hidden", name="%s" % field, value=ticket[field]) for field in
-                self.config.getlist('childtickets', 'parent.%s.inherit' % ticket['type'])
+                self.config.getlist('relations-child', 'parent.%s.inherit' % ticket['type'])
             ]
 
             # If child types are restricted then create a set of buttons for the allowed types (This will override 'default_child_type).
@@ -298,41 +480,20 @@ class ChildTicketsModule(Component):
                                                       title="Create a %s child ticket" % ticket_type) for
                                             ticket_type in restrict_child_types]
 
-            buttonform = tag.form(tag.p(_("Create New Ticket")),
+            button_div.append(tag.form(tag.fieldset(tag.legend(_("Create New Child Ticket")),
                                   tag.div(default_child_fields, inherited_child_fields, submit_button_fields),
                                   method="get", action=req.href.newticket(),
-                                  class_="child-trelations-form", )
-            return to_unicode(buttonform)
-        return ''
+                                  class_="child-trelations-form")))
+            return to_unicode(button_div)
 
-    # ITicketManipulator methods
-
-    def prepare_ticket(self, req, ticket, fields, actions):
-        pass
-
-    def validate_ticket(self, req, ticket):
-        """Validate ticket properties when creating or modifying.
-
-        Must return a list of `(field, message)` tuples, one for each problem
-        detected. `field` can be `None` to indicate an overall problem with the
-        ticket. Therefore, a return value of `[]` means everything is OK."""
-
-        # This custom field is used to transfer data from e.g. a parent ticket
-        # to a newly created child ticket. There is no other way to get that information
-        # from a req to the created ticket.
-        # Clear the custom field so if we reuse it for more than one transfer we
-        # don't get any change entries in the ticket history.
-        # In the change listener on may use the data from the 'tracrelation' which
-        # is not saved in the database.
-        # if ticket['relationdata']:
-        #     self.log.info('##### have relationdata: %s' % ticket['relationdata'])
-        #     ticket['tracrelation'] = ticket['relationdata']
-        #   # ticket['relationdata'] = None
-
-        return []
-
-    def validate_comment(self, req, comment):
-        return []
+        # Creation is not allowed for some reason
+        # button_div.append(tag.h4(_("Create New Child Ticket")))
+        button_div.append(tag.p(_("(Child tickets are disabled for this ticket type "
+                                  "or you don't have the necessary permissions to create tickets.)"),
+                                  class_="help"
+                                )
+                          )
+        return to_unicode(button_div)
 
     # ITicketChangeListener methods
 
@@ -370,12 +531,13 @@ class ChildTicketsModule(Component):
 
     def relation_added(self, relation):
         """Called when a relation was added"""
-        # self.log.info('################ Relation added: %s' % repr(relation))
-        pass
+        if relation['type'] == 'parentchild':
+            del self.childtickets
 
     def relation_deleted(self, relation):
         """Called when a relation was deleted"""
-        pass
+        if relation['type'] == 'parentchild':
+            del self.childtickets
 
     # ITemplateProvider methods
 
