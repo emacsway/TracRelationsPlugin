@@ -45,8 +45,8 @@ def _save_config(config, req, log):
                            'been saved.'))
 
 
-class ChildRelationsAdminPanel(Component):
-    """Configure which ticket types allow children, inherited fields for children and more.
+class ChildTicketRelationsAdminPanel(Component):
+    """Configure which ticket types allow children at all, inherited fields for children and more.
 
     All the settings may be controlled from the admin pages. They are saved
     in ''trac.ini'' as shown below.
@@ -187,8 +187,28 @@ class ChildRelationsAdminPanel(Component):
         return types
 
 
-class ChildTicketsModule(Component):
-    """Component which inserts the child ticket data into the ticket page"""
+class ChildTicketRelations(Component):
+    """Component for child ticket handling. Supplements the TicketRelations plugin.
+
+    The {{{TicketRelations}}} plugin provides basic features with regard to {{{parent -> child}}}
+    relationships like allowing to manage those relations. This plugin adds some more:
+
+    * creation of child tickets from the ticket page, thus the parent->child relationship is
+      automatically maintained
+    * have different child ticket types for different ticket types
+    * show a (foldable) child ticket tree on the ticket page
+    * allow to customize the shown ticket data in the child ticket tree
+
+    For feature customization is an admin panel available. See {{{ChildTicketRelationsAdminPanel}}} for
+    more information.
+    === Configuration
+    It is necessary to create a ticket-custom field {{{relationdata}}}. This field will not
+    be shown on the ticket page but is needed for internal use.
+    {{{#!ini
+    [ticket-custom]
+    relationdata = text
+    }}}
+    """
 
     implements(IRelationChangeListener, IRequestFilter, ITemplateProvider, ITicketChangeListener)
 
@@ -236,9 +256,8 @@ class ChildTicketsModule(Component):
                                                             to_unicode(rendered_parent)))
 
                 if ticket.exists:
-
                     xform = JTransformer('div#ticket')
-                    tree = self.create_childticket_tree_html(req, data, ticket)
+                    tree = self.create_childticket_tree_html(data, ticket)
                     filter_lst.append(xform.after(to_unicode(tree)))
 
                     buttons = self.create_child_ticket_buttons(req, ticket)
@@ -246,7 +265,6 @@ class ChildTicketsModule(Component):
                         # xpath: //div[@id="ticket"]
                         xform = JTransformer('div#ticket')
                         filter_lst.append(xform.after(to_unicode(buttons)))
-
 
                 add_stylesheet(req, 'ticketrelations/css/child_relations.css')
                 add_script_data(req, {'childrels_filter': filter_lst})
@@ -258,18 +276,19 @@ class ChildTicketsModule(Component):
     def childtickets(self):
         children = {}
         for rel in Relation.select(self.env, 'ticket', reltype='parentchild'):
-            self.log.info('  Relation: %s' % repr(rel))
             children.setdefault(int(rel['source']), []).append(int(rel['dest']))
         return children
 
-    def create_childticket_tree_html(self, req, data, ticket):
+    def create_childticket_tree_html(self, data, ticket):
 
         # Modify ticket.html with sub-ticket table, create button, etc...
         # As follows:
         # - If ticket has no child tickets and child tickets are NOT allowed then skip.
-        # - If ticket has child tickets and child tickets are NOT allowed (ie. rules changed or ticket type changed after children were assigned),
+        # - If ticket has child tickets and child tickets are NOT allowed (ie. rules changed or ticket type
+        #   changed after children were assigned),
         #   print list of tickets but do not allow any tickets to be created.
-        # - If child tickets are allowed then print list of child tickets or 'No Child Tickets' if non are currently assigned.
+        # - If child tickets are allowed then print list of child tickets or 'No Child Tickets' if none are
+        #   currently assigned.
         if ticket and ticket.exists:
             def indented_table(tkt, treecolumns, indent=0):
                 """Create a table from the ticket tkt which may be indented.
@@ -395,17 +414,12 @@ class ChildTicketsModule(Component):
 
     def _table_row(self, data, ticket, columns, field_format):
         """
-        @param data: data dictionarty givn to the ticket page
+        @param data: data dictionary given to the ticket page
         @param ticket: Ticket object with the data
         @param columns: ticket fields to be shown
         @param field_format: dict with key: name of field, val: type of field
         :param data:
         """
-        # Is the ticket closed?
-        ticket_class = ''
-        if ticket['status'] == 'closed':
-            ticket_class = 'closed'
-
         def get_value(field):
             if field == 'owner':
                 return data['owner_link']
@@ -481,16 +495,17 @@ class ChildTicketsModule(Component):
                                             ticket_type in restrict_child_types]
 
             button_div.append(tag.form(tag.fieldset(tag.legend(_("Create New Child Ticket")),
-                                  tag.div(default_child_fields, inherited_child_fields, submit_button_fields),
-                                  method="get", action=req.href.newticket(),
-                                  class_="child-trelations-form")))
+                                                    tag.div(default_child_fields, inherited_child_fields,
+                                                            submit_button_fields)),
+                                                    method="get", action=req.href.newticket(),
+                                                    class_="child-trelations-form"))
             return to_unicode(button_div)
 
         # Creation is not allowed for some reason
         # button_div.append(tag.h4(_("Create New Child Ticket")))
         button_div.append(tag.p(_("(Child tickets are disabled for this ticket type "
                                   "or you don't have the necessary permissions to create tickets.)"),
-                                  class_="help"
+                                class_="help"
                                 )
                           )
         return to_unicode(button_div)
@@ -516,11 +531,11 @@ class ChildTicketsModule(Component):
     def ticket_deleted(self, ticket):
         pass
 
-    def ticket_comment_modified(ticket, cdate, author, comment, old_comment):
+    def ticket_comment_modified(self, ticket, cdate, author, comment, old_comment):
         """Called when a ticket comment is modified."""
         pass
 
-    def ticket_change_deleted(ticket, cdate, changes):
+    def ticket_change_deleted(self, ticket, cdate, changes):
         """Called when a ticket change is deleted.
 
         `changes` is a dictionary of tuple `(oldvalue, newvalue)`

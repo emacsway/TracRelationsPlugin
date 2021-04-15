@@ -6,7 +6,6 @@
 #
 from trac.core import Component, ExtensionPoint, implements, Interface, TracError
 from trac.db.api import DatabaseManager
-from trac.db.schema import Column, Table
 from trac.env import IEnvironmentSetupParticipant
 from trac.ticket.admin import AbstractEnumAdminPanel
 from trac.ticket.model import AbstractEnum, simplify_whitespace
@@ -18,17 +17,6 @@ from tracrelations.model import Relation
 
 db_version_key = 'relation_version'
 db_version = 1
-
-
-tables_v1 = [
-    Table('relation', key='id')[
-        Column('id', auto_increment=True),
-        Column('realm', type='text'),
-        Column('source', type='text'),
-        Column('dest', type='text'),
-        Column('type', type='text')
-        ],
-    ]
 
 table = """CREATE TABLE relation (
     id              integer PRIMARY KEY,
@@ -42,59 +30,6 @@ table = """CREATE TABLE relation (
 
 class ValidationError(TracError):
     """Raised when validation of a relation fails."""
-
-
-class RelationEnum(AbstractEnum):
-    type = 'relation'
-
-    def delete(self):
-        """Delete the enum value.
-        """
-        assert self.exists, "Cannot delete non-existent %s" % self.type
-
-        with self.env.db_transaction as db:
-            self.env.log.info("Deleting %s %s", self.type, self.name)
-            db("DELETE FROM enum WHERE type=%s AND value=%s",
-               (self.type, self._old_value))
-            # Re-order any enums that have higher value than deleted
-            # (close gap)
-            for enum in self.select(self.env):
-                try:
-                    if int(enum.value) > int(self._old_value):
-                        enum.value = to_unicode(int(enum.value) - 1)
-                        enum.update()
-                except ValueError:
-                    pass  # Ignore cast error for this non-essential operation
-
-            # TODO: Remove from relations table
-            #TicketSystem(self.env).reset_ticket_fields()
-
-        self.value = self._old_value = None
-        self.name = self._old_name = None
-
-    def update(self):
-        """Update the enum value.
-        """
-        assert self.exists, "Cannot update non-existent %s" % self.type
-        self.name = simplify_whitespace(self.name)
-        if not self.name:
-            raise TracError(_("Invalid %(type)s name.", type=self.type))
-
-        with self.env.db_transaction as db:
-            self.env.log.info("Updating %s '%s'", self.type, self.name)
-            db("UPDATE enum SET name=%s,value=%s WHERE type=%s AND name=%s",
-               (self.name, self.value, self.type, self._old_name))
-            # For Tracs enums we update the tickets here
-            # ...
-
-        self._old_name = self.name
-        self._old_value = self.value
-
-
-class RelationAdminPanel(AbstractEnumAdminPanel):
-    _type = 'relation'
-    _enum_cls = RelationEnum
-    _label = N_("Relation"), N_("Relation")
 
 
 def delete_relations_table(env):
@@ -142,6 +77,24 @@ def check_cycle(env, relation):
 
 
 class RelationSystem(Component):
+    """Core of the relation system. Must be enabled to use relations.
+
+    This component is the infrastructure provider for relations. It
+    maintains the relationship datatables and performs validation when
+    creating new relations.
+
+    Actual user-facing functionality is provided by additional plugins.
+
+    For example the {{{TicketRelations}}} plugin implements the following
+    for tickets:
+
+    * simple relations between tickets without any special semantics
+    * allow a ticket to block another ticket
+    * specify parent -> child relationships
+
+    Further information may be found in the description of the other
+    plugins.
+    """
     implements(IEnvironmentSetupParticipant)
 
     change_listeners = ExtensionPoint(IRelationChangeListener)
@@ -200,8 +153,8 @@ class RelationSystem(Component):
         self.log.info("Checking TracRelations upgrade status")
         dbm = DatabaseManager(self.env)
         db_installed_version = dbm.get_database_version(db_version_key)
-        #delete_relations_table(self.env)
-        #dbm.create_tables(table)
+        # delete_relations_table(self.env)
+        # dbm.create_tables(table)
         return db_installed_version < db_version
 
     def upgrade_environment(self):
