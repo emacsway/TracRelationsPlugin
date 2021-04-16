@@ -1,3 +1,3 @@
 from .api import *
-from .childrelations import *
+from .childtickets import *
 from .ticket import *
