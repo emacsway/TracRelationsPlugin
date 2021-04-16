@@ -26,6 +26,7 @@ from trac.wiki.formatter import format_to_html, format_to_oneliner
 from tracrelations.api import IRelationChangeListener, RelationSystem
 from tracrelations.jtransform import JTransformer
 from tracrelations.model import Relation
+from tracrelations.ticket import TktRelation
 
 
 INDENT_PERCENT = 3  # the indentation for the child ticket tree items
@@ -201,13 +202,6 @@ class ChildTicketRelations(Component):
 
     For feature customization is an admin panel available. See {{{ChildTicketRelationsAdminPanel}}} for
     more information.
-    === Configuration
-    It is necessary to create a ticket-custom field {{{relationdata}}}. This field will not
-    be shown on the ticket page but is needed for internal use.
-    {{{#!ini
-    [ticket-custom]
-    relationdata = text
-    }}}
     """
 
     implements(IRelationChangeListener, IRequestFilter, ITemplateProvider, ITicketChangeListener)
@@ -221,9 +215,6 @@ class ChildTicketRelations(Component):
         return handler
 
     def post_process_request(self, req, template, data, content_type):
-
-        if req.path_info == '/newticket':
-            pass
 
         if data and template in ('ticket.html', 'ticket_box.html'):
 
@@ -275,7 +266,7 @@ class ChildTicketRelations(Component):
     @cached
     def childtickets(self):
         children = {}
-        for rel in Relation.select(self.env, 'ticket', reltype='parentchild'):
+        for rel in Relation.select(self.env, 'ticket', reltype=TktRelation.PARENTCHILD):
             children.setdefault(int(rel['source']), []).append(int(rel['dest']))
         return children
 
@@ -526,7 +517,7 @@ class ChildTicketRelations(Component):
         # If we are a child ticket than create the relation in the database.
         if ticket['relationdata']:
             rel = Relation(self.env, 'ticket', src=ticket['relationdata'],
-                           dest=ticket.id, type='parentchild')
+                           dest=ticket.id, type=TktRelation.PARENTCHILD)
             RelationSystem(self.env).add_relation(rel)
 
     def ticket_deleted(self, ticket):
@@ -547,12 +538,12 @@ class ChildTicketRelations(Component):
 
     def relation_added(self, relation):
         """Called when a relation was added"""
-        if relation['type'] == 'parentchild':
+        if relation['type'] == TktRelation.PARENTCHILD:
             del self.childtickets
 
     def relation_deleted(self, relation):
         """Called when a relation was deleted"""
-        if relation['type'] == 'parentchild':
+        if relation['type'] == TktRelation.PARENTCHILD:
             del self.childtickets
 
     # ITemplateProvider methods
@@ -585,7 +576,6 @@ class ParentType(object):
         hdrs = self.config.getlist('relations-child',
                                    'parent.%s.table_headers' % self.name,
                                    default=['summary', 'owner'])
-
         return [col for col in hdrs if col in self.field_names]
 
     @property

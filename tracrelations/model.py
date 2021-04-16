@@ -85,13 +85,6 @@ class Relation(object):
             return res
 
     @classmethod
-    def select_by_id(cls, env, relation_id):
-        for rel in env.db_query("SELECT * FROM relation WHERE id=%s", (relation_id,)):
-            relation = cls(env, rel[1])
-            cls._assign_values(relation, *rel)
-            return relation
-
-    @classmethod
     def select(cls, env, realm=None, src=None, dest=None, reltype=None):
 
         for rel in Relation._fetch_from_db(env, realm, src, dest, reltype):

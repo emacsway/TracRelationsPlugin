@@ -8,8 +8,8 @@ import re
 from pkg_resources import resource_filename
 from trac.core import Component, implements
 from trac.perm import PermissionError
-from trac.resource import get_resource_url, ResourceExistsError
-from trac.ticket.api import ITicketManipulator, TicketSystem
+from trac.resource import get_resource_url, ResourceExistsError, ResourceNotFound
+from trac.ticket.api import ITicketChangeListener, ITicketManipulator, TicketSystem
 from trac.ticket.model import Ticket
 from trac.util.html import tag
 from trac.util.text import to_unicode
@@ -34,15 +34,24 @@ else:
     def iteritems(d):
         return d.iteritems()
 
+RELDATA_FIELD = 'relationdata'  # ticket custom field name for relation data handling
+
 
 class TktRelation(Relation):
     """Subclass for tickets with special rendering of relations"""
 
+    BLOCKING = 'blocking'
+    RELATION = 'relation'
+    PARENTCHILD = 'parentchild'
+    DUPLICATE = 'duplicate'
+
+    # Provide user friendly labels
     relations = {
-                 'blocking': (_("is blocking"), _("is blocked by")),
-                 # 'blocking': (_("blockiert"), _("wird blockiert von")),
-                 'relation': (_("relates to"), _("is related to")),
-                 'parentchild': (_("is parent of"), _("is child of"))
+                 BLOCKING: (_("is blocking"), _("is blocked by")),
+                 # BLOCKING: (_("blockiert"), _("wird blockiert von")),
+                 RELATION: (_("relates to"), _("is related to")),
+                 PARENTCHILD: (_("is parent of"), _("is child of")),
+                 DUPLICATE: (_("is duplicate of"), _("is duplicated by"))
                 }
 
     def render(self, data):
@@ -53,7 +62,7 @@ class TktRelation(Relation):
                 then HTML Markup is returned.
         """
         req = data.get('req')
-        format = data.get('format', 'wiki')
+        render_format = data.get('format', 'wiki')
         reverse = 1 if 'render_reverse' in self.values else 0
         if not req:
             return ''
@@ -72,7 +81,7 @@ class TktRelation(Relation):
         else:
             wiki = u"!#{dest} ''{typelbl}'' #{src}".format(**fdata)
 
-        if format == 'wiki':
+        if render_format == 'wiki':
             return wiki
         else:
             label = format_to_oneliner(self.env, ctxt, wiki)
@@ -87,6 +96,7 @@ class TicketRelations(Component):
     * simple relations between tickets without any special semantics ({{{relates to}}})
     * allow a ticket to {{{block}}} another ticket
     * specify {{{parent -> child}}} relationships
+    * {{{duplicate}}} tickets
 
     The plugin adds the relationship information to the ticket properties box when
     a ticket page is shown and allows to manage relations between tickets.
@@ -96,8 +106,19 @@ class TicketRelations(Component):
 
     {{{Parent -> child}}} relationships don't get any special handling here. There is an
     additional plugin for that.
+
+    When resolving a ticket as a duplicate the user may input a ticket number and
+    a {{{duplicate}}} relation is automatically created.
+
+    === Configuration
+    It is necessary to create a ticket-custom field {{{relationdata}}}. This field will not
+    be shown on the ticket page but is needed for internal use.
+    {{{#!ini
+    [ticket-custom]
+    relationdata = text
+    }}}
     """
-    implements(ITicketManipulator, ITemplateProvider, IRequestFilter, IRequestHandler)
+    implements(ITicketChangeListener, ITicketManipulator, ITemplateProvider, IRequestFilter, IRequestHandler)
 
     realm = TicketSystem.realm
 
@@ -132,15 +153,62 @@ class TicketRelations(Component):
                 if tkt['status'] != 'closed':
                     yield None, child_msg.format(childtkt=rel['dest'])
 
+        if ticket['resolution'] == 'duplicate':
+            tkt_id = ticket['relationdata'].strip('# ')
+            try:
+                tkt = Ticket(self.env, tkt_id)
+            except ResourceNotFound:
+                yield None, _("Ticket %(id)s does not exist.", id=tkt_id)
+
     def validate_comment(self, req, comment):
         """Validate ticket comment when appending or editing.
 
         Must return a list of messages, one for each problem detected.
         The return value `[]` indicates no problems.
-
-        :since: 1.3.2
         """
         return []
+
+    # ITicketChangeListener methods
+
+    def ticket_changed(self, ticket, comment, author, old_values):
+        """Called when a ticket is modified.
+
+        `old_values` is a dictionary containing the previous values of the
+        fields that have changed.
+        """
+
+        if 'resolution' in old_values:  # and ticket['relationdata']:
+            tkt_id = ticket['relationdata'].strip('# ')
+            if ticket['resolution'] == 'duplicate':
+                rel = Relation(self.env, 'ticket', src=ticket.id,
+                               dest=tkt_id, type=TktRelation.DUPLICATE)
+                RelationSystem(self.env).add_relation(rel)
+
+        # Remove changes regarding the hidden 'relationdata' field. Otherwise we get
+        # change messages in the history or when previewing some ticket changes.
+        with self.env.db_transaction as db:
+            db("DELETE FROM ticket_change WHERE ticket=%s AND field=%s", (ticket.id, 'relationdata'))
+            db("DELETE FROM ticket_custom WHERE ticket=%s AND name=%s", (ticket.id, 'relationdata'))
+
+    def ticket_created(self, ticket):
+        """Called when a ticket is created."""
+        # Remove relationdata from database.
+        with self.env.db_transaction as db:
+            db("DELETE FROM ticket_custom WHERE ticket=%s AND name=%s", (ticket.id, 'relationdata'))
+
+    def ticket_deleted(self, ticket):
+        pass
+
+    def ticket_comment_modified(self, ticket, cdate, author, comment, old_comment):
+        """Called when a ticket comment is modified."""
+        pass
+
+    def ticket_change_deleted(self, ticket, cdate, changes):
+        """Called when a ticket change is deleted.
+
+        `changes` is a dictionary of tuple `(oldvalue, newvalue)`
+        containing the ticket change of the fields that have changed."""
+        pass
 
     def create_manage_relations_dialog(self):
         tmpl = u"""<div id="manage-rel-dialog" title="Manage Relations" style="display: none">
@@ -218,36 +286,59 @@ class TicketRelations(Component):
 
     def post_process_request(self, req, template, data, metadata=None):
 
-        if template == 'ticket.html' and data:
-            tkt = data.get('ticket')
-            if tkt:
-                have_links = False
-                if 'fields' in data:
-                    # Create a temporary field for display only
-                    tkt.values['relations'], have_links = self.create_relations_wiki(req, tkt)  # Activates field
-                    data['fields'].append({
-                        'name': 'relations',
-                        'label': 'Relations',
-                        # 'rendered': html,  # format_to_html(self.env, web_context(req, tkt.resource), '== Baz\n' + tst_wiki),
-                        # 'editable': False,
-                        # 'value': "",
-                        'type': 'textarea',  # Full row
-                        'format': 'wiki'
-                    })
+        if data:
+            if template == 'ticket.html':
+                tkt = data.get('ticket')
+                if tkt:
+                    have_links = False
+                    if 'fields' in data:
+                        # Create a temporary field for display only
+                        tkt.values['relations'], have_links = self.create_relations_wiki(req, tkt)  # Activates field
+                        data['fields'].append({
+                            'name': 'relations',
+                            'label': 'Relations',
+                            'type': 'textarea',  # Full row
+                            'format': 'wiki'
+                        })
+                        field = data['fields'].by_name('relationdata')
+                        if field:
+                            field['label'] = 'Foo Bar'
 
-                filter_lst = []
+                    filter_lst = []
 
-                # Prepare the 'modify' button and manage dialog div for jquery-ui.
-                xform = JTransformer('table.properties #h_relations')
-                filter_lst.append(xform.prepend(self.create_relation_manage_form(tkt, have_links)))
-                xform = JTransformer('div#content')
-                filter_lst.append(xform.append(self.create_manage_relations_dialog()))
+                    # Prepare the 'modify' button and manage dialog div for jquery-ui.
+                    xform = JTransformer('table.properties #h_relations')
+                    filter_lst.append(xform.prepend(self.create_relation_manage_form(tkt, have_links)))
+                    xform = JTransformer('div#content')
+                    filter_lst.append(xform.append(self.create_manage_relations_dialog()))
 
-                add_script_data(req, {'tktrel_filter': filter_lst,
-                                      'tktrel_manageurl': './{tkt}/relations?format=fragment'.format(tkt=tkt.id)})
-                add_stylesheet(req, 'ticketrelations/css/ticket_relations.css')
-                add_script(req, 'ticketrelations/js/ticket_relations.js')
-                Chrome(self.env).add_jquery_ui(req)
+                    # Prepare the 'duplicate' input field
+                    if tkt.exists:
+                        field = data['fields'].by_name('relationdata')
+                        if field:
+                            field['label'] = _("Duplicate of")
+                        xform = JTransformer('#action_resolve_resolve_resolution')
+                        filter_lst.append(xform.after('<span style="display: none" id="tktrel-duplicate-id"> of '
+                                                      '<input type="text" value="" id="tktrel-id-input"'
+                                                      'name="field_relationdata" size="7"/></span>'))
+
+                    add_script_data(req, {'tktrel_filter': filter_lst,
+                                          'tktrel_manageurl': './{tkt}/relations?format=fragment'.format(tkt=tkt.id)})
+                    add_stylesheet(req, 'ticketrelations/css/ticket_relations.css')
+                    add_script(req, 'ticketrelations/js/ticket_relations.js')
+                    Chrome(self.env).add_jquery_ui(req)
+            elif template == 'ticket_preview.html':
+                # Make sure we have a nice label in the property changes box and the prview area
+                label =  _("Duplicate of")
+                if 'change_preview' in data:
+                    # Thats the properties changes box
+                    field = data['change_preview']['fields'].get('relationdata')
+                    if field:
+                        field['label'] = label
+                # That's the ticket box at the top
+                field = data['fields'].by_name('relationdata')
+                if field:
+                    field['label'] = label
 
         return template, data, metadata
 
