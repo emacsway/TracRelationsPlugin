@@ -44,9 +44,21 @@ jQuery(document).ready(function($) {
     $('#m-r-body').load(tktrel_manageurl)
   };
 
+  function resolution_change(event){
+    if(this.value === 'duplicate'){
+      $('#tktrel-duplicate-id').show();
+      }
+    else {
+      $('#tktrel-id-input').val('')
+      $('#tktrel-duplicate-id').hide();
+    };
+  };
+
   if(typeof tktrel_filter !== 'undefined'){
       apply_transform(tktrel_filter);
   };
+
+  $("#action_resolve_resolve_resolution").on('change', resolution_change);
 
 
   var dialog_width = $(window).width() * 0.4;
