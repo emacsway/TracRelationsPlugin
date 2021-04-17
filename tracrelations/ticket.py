@@ -300,9 +300,6 @@ class TicketRelations(Component):
                             'type': 'textarea',  # Full row
                             'format': 'wiki'
                         })
-                        field = data['fields'].by_name('relationdata')
-                        if field:
-                            field['label'] = 'Foo Bar'
 
                     filter_lst = []
 
@@ -329,15 +326,22 @@ class TicketRelations(Component):
                     Chrome(self.env).add_jquery_ui(req)
             elif template == 'ticket_preview.html':
                 # Make sure we have a nice label in the property changes box and the prview area
-                label =  _("Duplicate of")
+                label = _("Duplicate of")
                 if 'change_preview' in data:
-                    # Thats the properties changes box
+                    # That's the properties changes box
                     field = data['change_preview']['fields'].get('relationdata')
                     if field:
                         field['label'] = label
-                # That's the ticket box at the top
+                # That's the ticket box at the top.
+                # Unconditional change the label here because 'relationdata' may
+                # not be in the changed fields dict
                 field = data['fields'].by_name('relationdata')
                 if field:
+                    # Show field only if resolution is set to 'duplicate'
+                    if data.get('change_preview'):
+                        resolution = data['change_preview']['fields'].get('resolution')
+                        if not resolution or resolution.get('new') != 'duplicate':
+                            field['skip'] = True
                     field['label'] = label
 
         return template, data, metadata
