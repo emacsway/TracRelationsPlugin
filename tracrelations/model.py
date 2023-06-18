@@ -74,7 +74,7 @@ class Relation(object):
             for item in (('source', src), ('dest', dest), ('type', reltype)):
                 if item[1]:
                     sql += " AND %s=%%s" % item[0]
-                    vals.append(item[1])
+                    vals.append(str(item[1]))
 
             for res in env.db_query(sql, vals):
                 yield res
@@ -110,7 +110,8 @@ class Relation(object):
                 self.exists = True
                 self.id = db.get_last_id(cursor, 'relation', 'id')
         except self.env.db_exc.IntegrityError:
-            raise ValueError("Relations must be unique.")
+            raise
+            # raise ValueError("Relations must be unique.")
 
     @staticmethod
     def delete_relation_by_id(env, rel_id):

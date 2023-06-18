@@ -19,7 +19,7 @@ db_version_key = 'relation_version'
 db_version = 1
 
 table = """CREATE TABLE relation (
-    id              integer PRIMARY KEY,
+    id              serial PRIMARY KEY,
     realm           text,
     source          text,
     dest            text,
